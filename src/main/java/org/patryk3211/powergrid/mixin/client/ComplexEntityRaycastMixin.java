@@ -15,6 +15,8 @@
  */
 package org.patryk3211.powergrid.mixin.client;
 
+import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.projectile.ProjectileUtil;
@@ -22,47 +24,21 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.EntityHitResult;
 import net.minecraft.world.phys.Vec3;
-import org.jetbrains.annotations.Nullable;
 import org.patryk3211.powergrid.mixin.LevelEntitiesAccessor;
+import org.patryk3211.powergrid.utility.RaycastingUtils;
 import org.patryk3211.powergrid.utility.IComplexRaycast;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Unique;
-import org.spongepowered.asm.mixin.injection.At;
-import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
-import java.util.Optional;
 import java.util.function.Predicate;
 
 @Mixin(ProjectileUtil.class)
 public abstract class ComplexEntityRaycastMixin {
-    @Unique
-    @Nullable
-    private static Vec3 powerGrid$complexRaycast(Entity entity, Vec3 min, Vec3 max, double distance) {
-        assert entity instanceof IComplexRaycast;
-        IComplexRaycast checker = (IComplexRaycast) entity;
 
-        AABB entityBB = entity.getBoundingBox().inflate(entity.getPickRadius());
-        Optional<Vec3> potentialHit = entityBB.clip(min, max);
-        if(entityBB.contains(min)) {
-            // Casting entity inside of potential hit entity
-            return checker.raycast(min, max);
-        } else if(potentialHit.isPresent()) {
-            if(min.distanceToSqr(potentialHit.get()) < distance) {
-                // Ray hits bounding box of potential hit entity
-                return checker.raycast(min, max);
-            }
-        }
-        return null;
-    }
-
-    @Inject(
-            method= "getEntityHitResult(Lnet/minecraft/world/entity/Entity;Lnet/minecraft/world/phys/Vec3;Lnet/minecraft/world/phys/Vec3;Lnet/minecraft/world/phys/AABB;Ljava/util/function/Predicate;D)Lnet/minecraft/world/phys/EntityHitResult;",
-            at = @At(value = "RETURN"),
-            cancellable = true
+    @WrapMethod(
+            method= "getEntityHitResult(Lnet/minecraft/world/entity/Entity;Lnet/minecraft/world/phys/Vec3;Lnet/minecraft/world/phys/Vec3;Lnet/minecraft/world/phys/AABB;Ljava/util/function/Predicate;D)Lnet/minecraft/world/phys/EntityHitResult;"
     )
-    private static void powerGrid$complexRaycast(Entity shooter, Vec3 startVec, Vec3 endVec, AABB boundingBox, Predicate<Entity> filter, double distance, CallbackInfoReturnable<EntityHitResult> cir) {
-        EntityHitResult baseResult = cir.getReturnValue();
+    private static EntityHitResult powerGrid$complexRaycast(Entity shooter, Vec3 startVec, Vec3 endVec, AABB boundingBox, Predicate<Entity> filter, double distance, Operation<EntityHitResult> original) {
+        EntityHitResult baseResult = original.call(shooter, startVec, endVec, boundingBox, filter, distance);
 
         Level world = shooter.level();
         double currentHitDistance = distance;
@@ -85,7 +61,7 @@ public abstract class ComplexEntityRaycastMixin {
             var cZ = Mth.clamp(startVec.z, bb.minZ, bb.maxZ);
             if(startVec.distanceToSqr(cX, cY, cZ) >= currentHitDistance)
                 continue;
-            Vec3 hit = powerGrid$complexRaycast(potentialHitEntity, startVec, endVec, currentHitDistance);
+            Vec3 hit = RaycastingUtils.complexRaycast(potentialHitEntity, startVec, endVec, currentHitDistance);
             if(hit != null) {
                 double hitSquaredDistance = startVec.distanceToSqr(hit);
                 if(hitSquaredDistance < currentHitDistance) {
@@ -98,7 +74,8 @@ public abstract class ComplexEntityRaycastMixin {
 
         if(currentHitEntity != null) {
             // We found a closer entity
-            cir.setReturnValue(new EntityHitResult(currentHitEntity, currentHitPoint));
+            return new EntityHitResult(currentHitEntity, currentHitPoint);
         }
+        return baseResult;
     }
 }
